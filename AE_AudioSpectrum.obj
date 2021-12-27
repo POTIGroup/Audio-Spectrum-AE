@@ -1,0 +1,189 @@
+--track0: 開始位置, 0, 4000, 100
+--track1: 終了位置, 0, 4000, 1820
+--track2: 周波数帯, 1, 2000, 100
+--track3: 高さ, 0, 2000, 200
+
+--dialog: 内色/col, InColor=0xffffff; 外色/col, OutColor=0xff00ff; 開始周波数, StartFrequency=0; 終了周波数, EndFrequency=100; AUDIOデゥレーション, AudioDuration=1; デゥレーションタイプ, DurationType=0; AUDIOオフセット, AudioOffset=0; 太さ, Thickness=10; 柔らかさ, Softness=0; ディスプレイオプション, DisplayOption=0; サイドオプション, SideOption=1; Debugモード/chk, DebugMode=0;
+
+-- rikky_moduleインポート
+package.cpath = package.cpath..";"..obj.getinfo("script_path"):match("(.*\\).*\\").."?.dll"
+local bool, rikky_module = pcall(require, "rikky_module")
+if not bool then
+	obj.load("<s100>need rikky_module!")
+	obj.draw()
+	return
+end
+
+StartPosition = obj.track0 - obj.screen_w / 2
+EndPosition = obj.track1 - obj.screen_w / 2
+FrequencyBand = obj.track2
+Height = obj.track3 / 10000
+
+AllLength = EndPosition - StartPosition
+CurrentFrame, AllFrame = rikky_module.getinfo ("frame")
+
+DurationBuffer = {}
+SoundBuffer = {}
+
+for i = 1, AudioDuration do
+	DurationBuffer[i] = {}
+end
+
+error = 0
+
+-- 設定
+obj.setfont ("MS UI Gothic", 50, 0, 0xffffff)
+obj.setoption ("drawtarget", "tempbuffer", obj.screen_w, obj.screen_h)
+
+-- エラー検出
+if StartFrequency < 0 then
+	DisplayError ("開始周波数", "small")
+end
+
+if EndFrequency < 0 then
+	DisplayError ("終了周波数", "small")
+end
+
+if AudioDuration < 1 then
+	DisplayError ("AUDIOデゥレーション", "small")
+end
+
+if Thickness <= 0 then
+	DisplayError ("太さ", "small")
+end
+
+if Softness < 0 then
+	DisplayError ("柔らかさ", "small")
+end
+
+if Softness > 100 then
+	DisplayError ("柔らかさ", "big")
+end
+
+if DisplayOption < 0 then
+	DisplayError ("ディスプレイオプション", "small")
+end
+
+if DisplayOption > 2 then
+	DisplayError ("ディスプレイオプション", "big")
+end
+
+if SideOption < 0 then
+	DisplayError ("サイドオプション", "small")
+end
+
+if SideOption > 2 then
+	DisplayError ("サイドオプション", "big")
+end
+
+if error == 0 then
+	if AudioDuration > 1 then -- デゥレーション処理
+		for i = 1, FrequencyBand do
+			SoundBuffer[i] = 0
+		end
+
+		for i = 1, AudioDuration do
+			if DurationType  == 0 then
+				DurationBuffer[i] = rikky_module.audiobuffer (CurrentFrame + i - 1 + AudioOffset, "FOURIER", "absolute", "monaural", 1024, 3, {StartFrequency, EndFrequency * 6})
+			end
+
+			if DurationType == 1 then
+				DurationBuffer[i] = rikky_module.audiobuffer (CurrentFrame - i + 1 + AudioOffset, "FOURIER", "absolute", "monaural", 1024, 3, {StartFrequency, EndFrequency * 6})
+			end
+
+			if DurationType == 2 then
+				DurationBuffer[i] = rikky_module.audiobuffer (CurrentFrame + i - 1 + AudioOffset, "FOURIER", "absolute", "monaural", 1024, 3, {StartFrequency, EndFrequency * 6})
+			end
+
+			for j = 1, FrequencyBand do
+				if DurationBuffer[i][j] == nil then
+					DurationBuffer[i][j] = 0
+				end
+
+				SoundBuffer[j] = SoundBuffer[j] + DurationBuffer[i][j] / AudioDuration
+			end
+		end
+	end
+
+	if AudioDuration == 1 then -- 通常処理
+		SoundBuffer = rikky_module.audiobuffer (CurrentFrame + AudioOffset, "FOURIER", "absolute", "monaural", 1024, 3, {StartFrequency, EndFrequency * 6})
+	
+		for i = 1, FrequencyBand do
+			if SoundBuffer[i] == nil then
+				SoundBuffer[i] = 0
+			end
+		end
+	end
+
+	if DisplayOption == 0 then -- 基準円描画
+		obj.load ("figure", "円", InColor, Thickness)
+
+		for i = 0, FrequencyBand - 1 do
+			obj.draw (AllLength / (FrequencyBand - 1) * i + StartPosition, 0, 0)
+		end
+	end
+
+	if DisplayOption ~= 1 then -- 波形円描画
+		obj.load ("figure", "円", InColor, Thickness)
+
+		if SideOption ~= 2 then
+			for i = 0, FrequencyBand - 1 do
+				obj.draw (AllLength / (FrequencyBand - 1) * i + StartPosition, -SoundBuffer[i + 1] * Height, 0)
+			end
+		end
+
+		if SideOption ~= 1 then
+			for i = 0, FrequencyBand - 1 do
+				obj.draw (AllLength / (FrequencyBand - 1) * i + StartPosition, SoundBuffer[i + 1] * Height, 0)
+			end
+		end
+	end
+
+	if DisplayOption ~= 2 then
+		local S = {}
+
+		for i = 1, 4 do
+			S[i] = {}
+			for j = 1, 2 do
+				S[i][j] = 0
+			end
+		end
+
+		obj.load ("figure", "四角形", InColor, 1)
+
+		for i = 0, FrequencyBand - 1 do
+			-- 1 : x, 2: y
+			S[1][1] = (AllLength / (FrequencyBand - 1) * i + StartPosition) - (Thickness / 2)
+			S[1][2] = -SoundBuffer[i + 1] * Height
+			S[2][1] = (AllLength / (FrequencyBand - 1) * i + StartPosition) + (Thickness / 2)
+			S[2][2] = -SoundBuffer[i + 1] * Height
+			
+			S[3][1] = (AllLength / (FrequencyBand - 1) * i + StartPosition) + (Thickness / 2)
+			S[3][2] = 0
+			S[4][1] = (AllLength / (FrequencyBand - 1) * i + StartPosition) - (Thickness / 2)
+			S[4][2] = 0
+			
+			if SideOption ~= 2 then -- 上
+				obj.drawpoly (S[1][1], S[1][2], 0, S[2][1], S[2][2], 0, S[3][1], S[3][2], 0, S[4][1], S[4][2], 0)
+			end
+
+			if SideOption ~= 1 then -- 下
+				obj.drawpoly (S[1][1], -S[1][2], 0, S[2][1], -S[2][2], 0, S[3][1], S[3][2], 0, S[4][1], S[4][2], 0)
+			end
+		end
+	end
+end
+
+if DebugMode == 1 then
+	obj.load ("text", SoundBuffer[10])
+	obj.draw (0, 0, 0)
+end
+
+obj.load ("tempbuffer")
+obj.effect()
+
+function DisplayError (name, size)
+	error = 1
+	obj.load ("text", "Error " .. name .. "! The number is too " .. size)
+	obj.draw (0, 0, 0)
+end
